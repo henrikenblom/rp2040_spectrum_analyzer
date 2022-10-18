@@ -8,37 +8,29 @@
 #include "kiss_fftr.h"
 
 #define max(X, Y) (((X) > (Y)) ? (X) : (Y))
-
-// set this to determine sample rate
-// 0     = 500,000 Hz
-// 960   = 50,000 Hz
-// 9600  = 5,000 Hz
 #define CLOCK_DIV 960
 #define FSAMP 50000
-
-// Channel 0 is GPIO26
 #define CAPTURE_CHANNEL 0
-#define DENOMINATOR_POT_CHANNEL 1
 #define NSAMP 1024
-#define ZOOMED_IN_MAX_INDEX 256
+#define ZOOMED_IN_MAX_INDEX 128
+#define MEDIUM_ZOOM_MAX_INDEX 256
 #define ZOOMED_OUT_MAX_INDEX 512
 
-// globals
 dma_channel_config dma_cfg;
 uint dma_chan;
 float freqs[NSAMP];
+int zoom_levels[] = {ZOOMED_OUT_MAX_INDEX, MEDIUM_ZOOM_MAX_INDEX, ZOOMED_IN_MAX_INDEX};
+int zoom_level = 0;
 
-uint16_t read_denominator_pot();
-
-void gpio_callback(uint gpio, uint32_t events);
+void gpio_callback(uint gpio);
 
 void setup();
 
 void sample(uint8_t *capture_buf);
 
-uint16_t read_denominator_pot();
+void draw_dotted_vertical_line(ssd1306_t disp, int x, int length);
 
-int max_index = ZOOMED_OUT_MAX_INDEX;
+void draw_horizontal_lines(ssd1306_t disp);
 
 int main() {
     setbuf(stdout, 0);
@@ -65,23 +57,22 @@ int main() {
         kiss_fftr(fft_cfg, fft_in, fft_out);
 
         ssd1306_clear(&disp);
-        uint16_t pot_value = read_denominator_pot();
+        draw_horizontal_lines(disp);
+        double factor = 0.00000015;
         for (int x = 0; x < 127; x++) {
-            int i = (int) ((float) max_index / (float) 128 * (float) x);
-            int y = (int) (((fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i) +
-                            (fft_out[i + 1].r * fft_out[i + 1].r + fft_out[i + 1].i * fft_out[i + 1].i)) / 4) /
-                    pot_value;
-            ssd1306_draw_line(&disp, x, max(0, 22 - y), x, 23);
+            int i = (int) ((float) zoom_levels[zoom_level] / (float) 128 * (float) x);
+            int y = (int) ((fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i +
+                            fft_out[i + 1].r * fft_out[i + 1].r + fft_out[i + 1].i * fft_out[i + 1].i) *
+                           factor);
+            ssd1306_draw_line(&disp, x, max(0, 23 - y), x, 23);
             if (x > 0 && x % 32 == 0) {
+                draw_dotted_vertical_line(disp, x, 24);
                 float freq = freqs[i];
                 char temp_str[8];
-                snprintf(temp_str, 8, "%.0fk", (freq / 1000));
-                ssd1306_draw_line(&disp, x, 20, x, 24);
+                snprintf(temp_str, 8, "%.0fk", roundf(freq / 1000));
                 ssd1306_draw_string(&disp, x - (strlen(strtok(temp_str, " ")) * 6 / 2), 25, 1, temp_str);
             }
         }
-        ssd1306_draw_line(&disp, 0, 20, 0, 28);
-        ssd1306_draw_line(&disp, 127, 20, 127, 28);
         ssd1306_show(&disp);
     }
 
@@ -89,17 +80,25 @@ int main() {
     kiss_fft_free(fft_cfg);
 }
 
-uint16_t read_denominator_pot() {
-    adc_select_input(DENOMINATOR_POT_CHANNEL);
-    return adc_read();
+void draw_dotted_vertical_line(ssd1306_t disp, int x, int length) {
+    for (int y = 0; y < length + 1; y += 2) {
+        ssd1306_draw_pixel(&disp, x, y);
+    }
 }
 
-void gpio_callback(uint gpio, uint32_t events) {
+void draw_horizontal_lines(ssd1306_t disp) {
+    for (int y = 8; y < 24; y += 8) {
+        for (int x = 0; x < 127; x += 2) {
+            ssd1306_draw_pixel(&disp, x, y);
+        }
+    }
+}
+
+void gpio_callback(uint gpio) {
     if (gpio == 16) {
-        if (max_index == ZOOMED_OUT_MAX_INDEX) {
-            max_index = ZOOMED_IN_MAX_INDEX;
-        } else {
-            max_index = ZOOMED_OUT_MAX_INDEX;
+        zoom_level++;
+        if (zoom_level == 3) {
+            zoom_level = 0;
         }
     }
 }
@@ -144,7 +143,7 @@ void setup() {
     // set sample rate
     adc_set_clkdiv(CLOCK_DIV);
 
-    gpio_set_irq_enabled_with_callback(16, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+    gpio_set_irq_enabled_with_callback(16, GPIO_IRQ_EDGE_FALL, true, (gpio_irq_callback_t) &gpio_callback);
     // Set up the DMA to start transferring data as soon as it appears in FIFO
     dma_chan = dma_claim_unused_channel(true);
     dma_cfg = dma_channel_get_default_config(dma_chan);
