@@ -65,22 +65,22 @@ int main() {
             int y = (int) ((fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i) / 2) / pot_value;
             int x = i / 2;
             ssd1306_draw_line(&disp, x, max(0, 22 - y), x, 23);
-            if (x % 32 == 0) {
+            if (x > 0 && x % 32 == 0) {
                 float freq = freqs[i];
-                char temp_str[20];
-                snprintf(temp_str, 20, "%.0fk", (freq / 1000));
-                ssd1306_draw_line(&disp, x, 20, x, 28);
-                ssd1306_draw_string(&disp, x + 4, 25, 1, temp_str);
+                char temp_str[8];
+                snprintf(temp_str, 8, "%.0fk", (freq / 1000));
+                ssd1306_draw_line(&disp, x, 20, x, 24);
+                int offset = (strlen(strtok(temp_str, " ")) * 6 / 2);
+                ssd1306_draw_string(&disp, x - offset, 25, 1, temp_str);
             }
 
         }
+        ssd1306_draw_line(&disp, 0, 20, 0, 28);
         ssd1306_draw_line(&disp, 127, 20, 127, 28);
         ssd1306_show(&disp);
     }
 
 #pragma clang diagnostic pop
-
-// should never get here
     kiss_fft_free(fft_cfg);
 }
 
@@ -128,7 +128,6 @@ void setup() {
     // set sample rate
     adc_set_clkdiv(CLOCK_DIV);
 
-    sleep_ms(1000);
     // Set up the DMA to start transferring data as soon as it appears in FIFO
     dma_chan = dma_claim_unused_channel(true);
     dma_cfg = dma_channel_get_default_config(dma_chan);
