@@ -18,19 +18,27 @@
 
 // Channel 0 is GPIO26
 #define CAPTURE_CHANNEL 0
-#define POT_CHANNEL 1
-#define NSAMP 512
+#define DENOMINATOR_POT_CHANNEL 1
+#define NSAMP 1024
+#define ZOOMED_IN_MAX_INDEX 256
+#define ZOOMED_OUT_MAX_INDEX 512
 
 // globals
 dma_channel_config dma_cfg;
 uint dma_chan;
 float freqs[NSAMP];
 
+uint16_t read_denominator_pot();
+
+void gpio_callback(uint gpio, uint32_t events);
+
 void setup();
 
 void sample(uint8_t *capture_buf);
 
-uint16_t read_pot();
+uint16_t read_denominator_pot();
+
+int max_index = ZOOMED_OUT_MAX_INDEX;
 
 int main() {
     setbuf(stdout, 0);
@@ -48,32 +56,29 @@ int main() {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EndlessLoop"
     while (1) {
-        // get NSAMP samples at FSAMP
         sample(cap_buf);
-        // fill fourier transform input while subtracting DC component
         uint64_t sum = 0;
         for (int i = 0; i < NSAMP; i++) { sum += cap_buf[i]; }
         float avg = (float) sum / NSAMP;
         for (int i = 0; i < NSAMP; i++) { fft_in[i] = (float) cap_buf[i] - avg; }
 
-        // compute fast fourier transform
         kiss_fftr(fft_cfg, fft_in, fft_out);
 
         ssd1306_clear(&disp);
-        uint16_t pot_value = read_pot();
-        for (int i = 0; i < NSAMP / 2; i++) {
-            int y = (int) ((fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i) / 2) / pot_value;
-            int x = i / 2;
+        uint16_t pot_value = read_denominator_pot();
+        for (int x = 0; x < 127; x++) {
+            int i = (int) ((float) max_index / (float) 128 * (float) x);
+            int y = (int) (((fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i) +
+                            (fft_out[i + 1].r * fft_out[i + 1].r + fft_out[i + 1].i * fft_out[i + 1].i)) / 4) /
+                    pot_value;
             ssd1306_draw_line(&disp, x, max(0, 22 - y), x, 23);
             if (x > 0 && x % 32 == 0) {
                 float freq = freqs[i];
                 char temp_str[8];
                 snprintf(temp_str, 8, "%.0fk", (freq / 1000));
                 ssd1306_draw_line(&disp, x, 20, x, 24);
-                int offset = (strlen(strtok(temp_str, " ")) * 6 / 2);
-                ssd1306_draw_string(&disp, x - offset, 25, 1, temp_str);
+                ssd1306_draw_string(&disp, x - (strlen(strtok(temp_str, " ")) * 6 / 2), 25, 1, temp_str);
             }
-
         }
         ssd1306_draw_line(&disp, 0, 20, 0, 28);
         ssd1306_draw_line(&disp, 127, 20, 127, 28);
@@ -84,9 +89,19 @@ int main() {
     kiss_fft_free(fft_cfg);
 }
 
-uint16_t read_pot() {
-    adc_select_input(POT_CHANNEL);
+uint16_t read_denominator_pot() {
+    adc_select_input(DENOMINATOR_POT_CHANNEL);
     return adc_read();
+}
+
+void gpio_callback(uint gpio, uint32_t events) {
+    if (gpio == 16) {
+        if (max_index == ZOOMED_OUT_MAX_INDEX) {
+            max_index = ZOOMED_IN_MAX_INDEX;
+        } else {
+            max_index = ZOOMED_OUT_MAX_INDEX;
+        }
+    }
 }
 
 void sample(uint8_t *capture_buf) {
@@ -110,6 +125,7 @@ void setup() {
     gpio_set_function(3, GPIO_FUNC_I2C);
     gpio_pull_up(2);
     gpio_pull_up(3);
+    gpio_pull_up(16);
     stdio_init_all();
 
     adc_gpio_init(26 + CAPTURE_CHANNEL);
@@ -128,6 +144,7 @@ void setup() {
     // set sample rate
     adc_set_clkdiv(CLOCK_DIV);
 
+    gpio_set_irq_enabled_with_callback(16, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
     // Set up the DMA to start transferring data as soon as it appears in FIFO
     dma_chan = dma_claim_unused_channel(true);
     dma_cfg = dma_channel_get_default_config(dma_chan);
