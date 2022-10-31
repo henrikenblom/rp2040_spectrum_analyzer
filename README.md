@@ -1,4 +1,4 @@
-# rp2040_spectrum_analyzer
+# RP2040 Spectrum Analyzer
 
 A spectrum analyzer, using the RP2040 microcontroller.
 
