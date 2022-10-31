@@ -28,9 +28,9 @@ void setup();
 
 void sample(uint8_t *capture_buf);
 
-void draw_dotted_vertical_line(ssd1306_t disp, int x, int length);
+void draw_vertical_guideline(ssd1306_t disp, int x, int length);
 
-void draw_horizontal_lines(ssd1306_t disp);
+void draw_horizontal_guidelines(ssd1306_t disp);
 
 int main() {
     setbuf(stdout, 0);
@@ -57,7 +57,7 @@ int main() {
         kiss_fftr(fft_cfg, fft_in, fft_out);
 
         ssd1306_clear(&disp);
-        draw_horizontal_lines(disp);
+        draw_horizontal_guidelines(disp);
         double factor = 0.00000015;
         for (int x = 0; x < 127; x++) {
             int i = (int) ((float) zoom_levels[zoom_level] / (float) 128 * (float) x);
@@ -66,7 +66,7 @@ int main() {
                            factor);
             ssd1306_draw_line(&disp, x, max(0, 23 - y), x, 23);
             if (x > 0 && x % 32 == 0) {
-                draw_dotted_vertical_line(disp, x, 24);
+                draw_vertical_guideline(disp, x, 24);
                 float freq = freqs[i];
                 char temp_str[8];
                 snprintf(temp_str, 8, "%.0fk", roundf(freq / 1000));
@@ -80,13 +80,13 @@ int main() {
     kiss_fft_free(fft_cfg);
 }
 
-void draw_dotted_vertical_line(ssd1306_t disp, int x, int length) {
+void draw_vertical_guideline(ssd1306_t disp, int x, int length) {
     for (int y = 0; y < length + 1; y += 2) {
         ssd1306_draw_pixel(&disp, x, y);
     }
 }
 
-void draw_horizontal_lines(ssd1306_t disp) {
+void draw_horizontal_guidelines(ssd1306_t disp) {
     for (int y = 8; y < 24; y += 8) {
         for (int x = 0; x < 127; x += 2) {
             ssd1306_draw_pixel(&disp, x, y);
